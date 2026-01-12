@@ -1,89 +1,65 @@
-pipeline {
+peline {
     agent any
 
     environment {
-        IMAGE_NAME = "saravananboopathykumar/flask-cicd"
-        REGISTRY_CREDENTIAL = "dockerhub" // Jenkins DockerHub credentials ID
-        KUBE_CONFIG = "/var/lib/jenkins/.kube/config" // Jenkins Kube config
-    }
-
-    options {
-        buildDiscarder(logRotator(numToKeepStr: '10')) // Keep last 10 builds
-        timestamps() // Add timestamps to logs
+        IMAGE = "saravananboopathykumar/flask-cicd" // Docker image name
+        K8S_DEPLOYMENT_FILE = "deployment.yaml"   // Kubernetes deployment YAML
+        DOCKER_CREDENTIALS_ID = "dockerhub"       // Jenkins Docker credentials ID
     }
 
     stages {
-
-        // 1️⃣ Checkout the code from Git
-        stage('Checkout SCM') {
+        stage('Checkout Code') {
             steps {
-                checkout scm
+                // Pull latest code from GitHub
+                git branch: 'main', url: 'https://github.com/Saravananboopathykumar/Working-Jenkins-Kubernetes-CI-CD-project.git'
             }
         }
 
-        // 2️⃣ Run Python/Flask tests (if any)
-        stage('Run Tests') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    if (fileExists('tests/')) {
-                        sh 'pip install pytest'
-                        sh 'pytest tests/'
-                    } else {
-                        echo "No tests found, skipping."
+                    sh "docker build -t ${IMAGE}:latest ."
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    withDockerRegistry([credentialsId: "${DOCKER_CREDENTIALS_ID}", url: '']) {
+                        sh "docker push ${IMAGE}:latest"
                     }
                 }
             }
         }
 
-        // 3️⃣ Build Docker image
-        stage('Build Docker Image') {
+        stage('Deploy to Kubernetes') {
             steps {
-                sh "docker build -t ${IMAGE_NAME}:latest ."
-            }
-        }
-
-        // 4️⃣ Push Docker image to Docker Hub
-        stage('Push Docker Image') {
-            steps {
-                withDockerRegistry([credentialsId: "${REGISTRY_CREDENTIAL}", url: ""]) {
-                    sh "docker push ${IMAGE_NAME}:latest"
+                script {
+                    // Apply the Kubernetes deployment YAML
+                    sh "kubectl apply -f ${K8S_DEPLOYMENT_FILE}"
                 }
             }
         }
 
-        // 5️⃣ Deploy to Kubernetes
-        stage('Deploy to Kubernetes') {
-            environment {
-                KUBECONFIG = "${KUBE_CONFIG}"
-            }
-            steps {
-                sh 'kubectl apply -f deployment.yaml'
-            }
-        }
-
-        // 6️⃣ Verify deployment (optional)
         stage('Verify Deployment') {
             steps {
-                environment {
-                    KUBECONFIG = "${KUBE_CONFIG}"
+                script {
+                    // Check pod status
+                    sh "kubectl get pods -o wide"
+                    // Optional: curl the service URL (update NodePort if needed)
+                    sh "kubectl get svc"
                 }
-                sh '''
-                echo "Waiting for pod to be ready..."
-                kubectl rollout status deployment/flask-deployment --timeout=60s
-                kubectl get pods -o wide
-                kubectl get svc
-                '''
             }
         }
     }
 
     post {
         success {
-            echo "✅ Pipeline finished successfully!"
+            echo "🚀 CI/CD Pipeline completed successfully!"
         }
         failure {
-            echo "❌ Pipeline failed. Check logs!"
+            echo "❌ Pipeline failed! Check logs above."
         }
     }
-}
 }
